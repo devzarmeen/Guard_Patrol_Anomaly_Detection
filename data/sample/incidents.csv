@@ -1,0 +1,4 @@
+event_id,guard_id,anomaly_type,is_incident,severity,verified_by
+CI003,G002,CHECKIN_LATE,true,MEDIUM,OP001
+GPS001,G001,ROUTE_DEVIATION,false,LOW,OP001
+CI004,G002,CHECKIN_MISSED,true,HIGH,OP002
