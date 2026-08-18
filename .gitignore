@@ -1,0 +1,46 @@
+# Environment
+.env
+.env.example
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Testing
+.pytest_cache/
+
+# Ruff
+.ruff_cache/
+
+# Logs
+logs/*.log
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Data
+data/raw/
+data/interim/
+data/processed/
+
+# Generated reports / outputs
+notebooks/*.csv
+notebooks/*.geojson
+notebooks/*.png
+notebooks/*.txt
