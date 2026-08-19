@@ -1,5 +1,9 @@
 import { apiFetch } from "./client";
 
+// =========================================================
+// ANOMALIES
+// =========================================================
+
 export interface Anomaly {
   id: number;
   guard_id: string;
@@ -60,40 +64,51 @@ export async function getMetrics(): Promise<Metrics> {
 // EVALUATION
 // =========================================================
 
-export interface EvaluationMethod {
-  tp: number;
-  fp: number;
-  tn: number;
-  fn: number;
+export interface MethodMetrics {
   precision: number;
   recall: number;
   f1: number;
   false_positive_rate: number;
   false_negative_rate: number;
   support: number;
+  tp: number;
+  fp: number;
+  tn: number;
+  fn: number;
+}
+
+export interface EvaluationMethod {
+  tp: number;
+  fp: number;
+  tn: number;
+  fn: number;
+  precision?: number;
+  recall?: number;
+  f1?: number;
+  false_positive_rate?: number;
+  false_negative_rate?: number;
+  support?: number;
 }
 
 export interface EvaluationResponse {
   labeled_examples: number;
 
   comparison: {
-    methods: Record<string, EvaluationMethod>;
     best_method: string | null;
+    methods: Record<string, MethodMetrics>;
   };
 
   gps_anomalies: Record<string, number>;
 
   checkin_anomalies: number;
 
-  patrol_anomalies: number;
+  patrol_anomalies?: number;
 
-  patrol_types: Record<string, number>;
+  patrol_types?: Record<string, number>;
 }
 
 export async function getEvaluation(): Promise<EvaluationResponse> {
-  return apiFetch<EvaluationResponse>(
-    "/api/evaluation"
-  );
+  return apiFetch<EvaluationResponse>("/api/evaluation");
 }
 
 // =========================================================

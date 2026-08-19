@@ -1,0 +1,16 @@
+# Checkpoint coordinates used for proximity checks.
+# Keep this separate from detection thresholds.
+
+checkpoints:
+  CP001:
+    latitude: 51.5074
+    longitude: -0.1278
+    site_id: SITE001
+  CP002:
+    latitude: 51.5075
+    longitude: -0.1277
+    site_id: SITE001
+  CP003:
+    latitude: 51.5076
+    longitude: -0.1276
+    site_id: SITE001

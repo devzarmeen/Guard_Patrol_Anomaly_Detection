@@ -1,0 +1,58 @@
+# Detection thresholds — do not hard-code these in model logic.
+# Values match docs/requirements.md and notebook baselines, and can be
+# changed via this file or PUT /api/config/thresholds.
+
+checkin:
+  allowed_window_minutes: 10
+  missed_after_minutes: 30
+  max_gps_accuracy_m: 50
+  checkpoint_radius_m: 100
+
+gps:
+  max_accuracy_m: 50
+  high_speed_kmh: 15
+  very_high_speed_kmh: 30
+  extreme_speed_kmh: 50
+  long_time_gap_seconds: 60
+  high_time_gap_seconds: 300
+  critical_time_gap_seconds: 900
+  gps_jump_m: 1000
+  large_road_deviation_m: 50
+  very_large_road_deviation_m: 100
+  extreme_road_deviation_m: 200
+  route_deviation_m: 200
+
+patrol:
+  min_duration_ratio: 0.4
+  max_duration_ratio: 2.5
+
+hybrid:
+  rule_weight: 0.5
+  ml_weight: 0.5
+  anomaly_score_threshold: 0.35
+
+risk:
+  critical: 0.70
+  high: 0.50
+  medium: 0.30
+  low: 0.15
+
+isolation_forest:
+  n_estimators: 200
+  contamination: auto
+  random_state: 42
+
+alerting:
+  min_risk_levels: ["High", "Critical"]
+  min_hybrid_score: 0.50
+  email_enabled: true
+  webhook_enabled: true
+  alert_on_actionable_events: true
+
+scheduler:
+  enabled: true
+  batch_interval_minutes: 15
+  incremental_interval_seconds: 60
+
+grouping:
+  max_gap_seconds: 300

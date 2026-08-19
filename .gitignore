@@ -1,9 +1,11 @@
 # Environment
 .env
 .env.example
+
 # Python
 __pycache__/
 *.py[cod]
+*.pyc
 
 # Virtual environments
 .venv/
@@ -44,3 +46,8 @@ notebooks/*.csv
 notebooks/*.geojson
 notebooks/*.png
 notebooks/*.txt
+
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
