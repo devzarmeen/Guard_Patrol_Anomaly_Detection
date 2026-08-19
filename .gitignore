@@ -1,53 +1,41 @@
-# Environment
+# Environment / secrets
 .env
-.env.example
+.env.*
+!.env.example
 
 # Python
-__pycache__/
-*.py[cod]
-*.pyc
-
-# Virtual environments
 .venv/
 venv/
-env/
-
-# Jupyter
-.ipynb_checkpoints/
-
-# Testing
-.pytest_cache/
-
-# Ruff
-.ruff_cache/
-
-# Logs
-logs/*.log
-
-# IDE
-.vscode/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Build
-build/
-dist/
-*.egg-info/
+__pycache__/
+*.py[cod]
 
 # Data
 data/raw/
-data/interim/
+data/private/
 data/processed/
 
-# Generated reports / outputs
-notebooks/*.csv
-notebooks/*.geojson
-notebooks/*.png
-notebooks/*.txt
-
+# Secrets / credentials
+*.key
+*.pem
+*.p12
+*.crt
+credentials.json
+service-account.json
+secrets.json
 
 # Frontend
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Build
 frontend/node_modules/
 frontend/dist/
+
+# Local backups
+*.backup
+*.bak
+
+# IDE
+.vscode/
+.idea/
