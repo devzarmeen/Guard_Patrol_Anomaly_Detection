@@ -5,8 +5,9 @@ import {
   getEvaluation,
   getMetrics,
   getThresholds,
-  type Anomaly,
+  updateThresholds,
   type EvaluationResponse,
+  type Anomaly,
   type Metrics,
 } from "./api/anomalies";
 
@@ -18,66 +19,84 @@ type RiskFilter = "All" | "Critical" | "High" | "Medium";
 
 const RECORDS_PER_PAGE = 10;
 
+type Thresholds = Record<string, any>;
+
 export default function App() {
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
-
-  const [mapAnomalies, setMapAnomalies] =
-    useState<Anomaly[]>([]);
-
+  const [mapAnomalies, setMapAnomalies] = useState<Anomaly[]>([]);
   const [selectedAnomaly, setSelectedAnomaly] =
     useState<Anomaly | null>(null);
-
-  const [metrics, setMetrics] =
-    useState<Metrics | null>(null);
 
   const [evaluation, setEvaluation] =
     useState<EvaluationResponse | null>(null);
 
-  const [thresholds, setThresholds] = useState<Record<
-    string,
-    unknown
-  > | null>(null);
+  const [metrics, setMetrics] = useState<Metrics | null>(null);
+
+  const [thresholds, setThresholds] =
+    useState<Thresholds | null>(null);
+
+  const [editingThresholds, setEditingThresholds] =
+    useState<Thresholds | null>(null);
+
+  const [savingThresholds, setSavingThresholds] =
+    useState(false);
+
+  const [thresholdMessage, setThresholdMessage] =
+    useState("");
 
   const [loading, setLoading] = useState(true);
-
   const [error, setError] = useState("");
 
   const [riskFilter, setRiskFilter] =
     useState<RiskFilter>("All");
 
   const [currentPage, setCurrentPage] = useState(1);
-
   const [totalRecords, setTotalRecords] = useState(0);
-
   const [totalPages, setTotalPages] = useState(0);
 
   // =========================================================
-  // LOAD METRICS
+  // LOAD DASHBOARD DATA
   // =========================================================
 
   useEffect(() => {
-    async function loadMetrics() {
+    async function loadDashboardData() {
       try {
-        const [metricsData, evaluationData, thresholdData] =
-          await Promise.all([
-            getMetrics(),
-            getEvaluation().catch(() => null),
-            getThresholds().catch(() => null),
-          ]);
+        setError("");
+
+        const [
+          metricsData,
+          evaluationData,
+          thresholdData,
+        ] = await Promise.all([
+          getMetrics(),
+          getEvaluation(),
+          getThresholds(),
+        ]);
 
         setMetrics(metricsData);
         setEvaluation(evaluationData);
+
         setThresholds(thresholdData);
+
+        // Create editable copy
+        setEditingThresholds(
+          JSON.parse(JSON.stringify(thresholdData))
+        );
       } catch (err) {
+        console.error(
+          "Dashboard loading error:",
+          err
+        );
+
         setError(
           err instanceof Error
             ? err.message
-            : "Failed to load metrics."
+            : "Failed to load dashboard data."
         );
       }
     }
 
-    loadMetrics();
+    loadDashboardData();
   }, []);
 
   // =========================================================
@@ -122,11 +141,14 @@ export default function App() {
         );
 
         setAnomalies(anomalyData.data);
-
         setTotalRecords(anomalyData.total);
-
         setTotalPages(anomalyData.total_pages);
       } catch (err) {
+        console.error(
+          "Failed to load anomalies:",
+          err
+        );
+
         setError(
           err instanceof Error
             ? err.message
@@ -144,7 +166,9 @@ export default function App() {
   // FILTER CHANGE
   // =========================================================
 
-  function handleFilterChange(filter: RiskFilter) {
+  function handleFilterChange(
+    filter: RiskFilter
+  ) {
     setRiskFilter(filter);
     setCurrentPage(1);
   }
@@ -162,7 +186,101 @@ export default function App() {
   }
 
   // =========================================================
-  // LOADING
+  // UPDATE GPS THRESHOLD
+  // =========================================================
+
+  function updateGpsThreshold(
+    key: string,
+    value: number
+  ) {
+    if (!editingThresholds) return;
+
+    setEditingThresholds({
+      ...editingThresholds,
+
+      gps: {
+        ...editingThresholds.gps,
+        [key]: value,
+      },
+    });
+  }
+
+  // =========================================================
+  // UPDATE HYBRID THRESHOLD
+  // =========================================================
+
+  function updateHybridThreshold(
+    key: string,
+    value: number
+  ) {
+    if (!editingThresholds) return;
+
+    setEditingThresholds({
+      ...editingThresholds,
+
+      hybrid: {
+        ...editingThresholds.hybrid,
+        [key]: value,
+      },
+    });
+  }
+
+  // =========================================================
+  // SAVE THRESHOLDS
+  // =========================================================
+
+  async function handleSaveThresholds() {
+    if (!editingThresholds) return;
+
+    try {
+      setSavingThresholds(true);
+      setThresholdMessage("");
+
+      const updated = await updateThresholds(
+        editingThresholds
+      );
+
+      setThresholds(updated);
+
+      setEditingThresholds(
+        JSON.parse(JSON.stringify(updated))
+      );
+
+      setThresholdMessage(
+        "Thresholds updated successfully."
+      );
+    } catch (err) {
+      console.error(
+        "Failed to update thresholds:",
+        err
+      );
+
+      setThresholdMessage(
+        err instanceof Error
+          ? err.message
+          : "Failed to update thresholds."
+      );
+    } finally {
+      setSavingThresholds(false);
+    }
+  }
+
+  // =========================================================
+  // RESET THRESHOLDS
+  // =========================================================
+
+  function handleResetThresholds() {
+    if (!thresholds) return;
+
+    setEditingThresholds(
+      JSON.parse(JSON.stringify(thresholds))
+    );
+
+    setThresholdMessage("");
+  }
+
+  // =========================================================
+  // INITIAL LOADING
   // =========================================================
 
   if (loading && anomalies.length === 0) {
@@ -173,7 +291,9 @@ export default function App() {
 
           <h2>Loading Dashboard</h2>
 
-          <p>Fetching anomaly data...</p>
+          <p>
+            Fetching anomaly data...
+          </p>
         </div>
       </div>
     );
@@ -210,7 +330,9 @@ export default function App() {
   const startRecord =
     totalRecords === 0
       ? 0
-      : (currentPage - 1) * RECORDS_PER_PAGE + 1;
+      : (currentPage - 1) *
+          RECORDS_PER_PAGE +
+        1;
 
   const endRecord = Math.min(
     currentPage * RECORDS_PER_PAGE,
@@ -229,9 +351,7 @@ export default function App() {
       {/* ================================================= */}
 
       <header className="dashboard-header">
-
         <div>
-
           <p className="eyebrow">
             VIGILOX
           </p>
@@ -244,17 +364,12 @@ export default function App() {
             Monitor suspicious patrol activity
             and anomaly events.
           </p>
-
         </div>
 
         <div className="status-badge">
-
           <span className="status-dot"></span>
-
           API Connected
-
         </div>
-
       </header>
 
       {/* ================================================= */}
@@ -264,7 +379,6 @@ export default function App() {
       <section className="metrics-grid">
 
         <div className="metric-card">
-
           <div className="metric-label">
             Total Anomalies
           </div>
@@ -276,11 +390,9 @@ export default function App() {
           <div className="metric-description">
             Detected anomaly points
           </div>
-
         </div>
 
         <div className="metric-card critical-card">
-
           <div className="metric-label">
             Critical
           </div>
@@ -292,11 +404,9 @@ export default function App() {
           <div className="metric-description">
             Immediate investigation required
           </div>
-
         </div>
 
         <div className="metric-card high-card">
-
           <div className="metric-label">
             High
           </div>
@@ -308,11 +418,9 @@ export default function App() {
           <div className="metric-description">
             High-risk anomaly points
           </div>
-
         </div>
 
         <div className="metric-card medium-card">
-
           <div className="metric-label">
             Medium
           </div>
@@ -324,11 +432,9 @@ export default function App() {
           <div className="metric-description">
             Requires monitoring
           </div>
-
         </div>
 
         <div className="metric-card alert-card">
-
           <div className="metric-label">
             Immediate Alerts
           </div>
@@ -340,25 +446,40 @@ export default function App() {
           <div className="metric-description">
             Active alerts
           </div>
-
         </div>
 
       </section>
 
+      {/* ================================================= */}
+      {/* EVALUATION */}
+      {/* ================================================= */}
+
       {evaluation && (
         <section className="evaluation-section">
+
           <div className="section-title">
             <div>
-              <h2>Detection Evaluation</h2>
+              <h2>
+                Detection Evaluation
+              </h2>
+
               <p>
-                Precision, Recall, F1, and False Positive Rate
-                across Rule-Based, Isolation Forest, and Hybrid.
-                Best method: {evaluation.comparison.best_method ?? "n/a"}
+                Precision, Recall, F1, and False
+                Positive Rate across Rule-Based,
+                Isolation Forest, and Hybrid.
+                Best method:{" "}
+                <strong>
+                  {evaluation.comparison.best_method ??
+                    "n/a"}
+                </strong>
               </p>
             </div>
           </div>
+
           <div className="table-container">
+
             <table>
+
               <thead>
                 <tr>
                   <th>Method</th>
@@ -368,44 +489,400 @@ export default function App() {
                   <th>FPR</th>
                 </tr>
               </thead>
+
               <tbody>
-                {Object.entries(evaluation.comparison.methods).map(
+
+                {Object.entries(
+                  evaluation.comparison.methods
+                ).map(
                   ([name, methodMetrics]) => (
+
                     <tr key={name}>
+
                       <td>
-                        <strong>{name}</strong>
+                        <strong>
+                          {name}
+                        </strong>
                       </td>
-                      <td>{methodMetrics.precision.toFixed(3)}</td>
-                      <td>{methodMetrics.recall.toFixed(3)}</td>
-                      <td>{methodMetrics.f1.toFixed(3)}</td>
+
                       <td>
-                        {methodMetrics.false_positive_rate.toFixed(3)}
+                        {methodMetrics.precision.toFixed(
+                          3
+                        )}
                       </td>
+
+                      <td>
+                        {methodMetrics.recall.toFixed(
+                          3
+                        )}
+                      </td>
+
+                      <td>
+                        {methodMetrics.f1.toFixed(
+                          3
+                        )}
+                      </td>
+
+                      <td>
+                        {methodMetrics.false_positive_rate.toFixed(
+                          3
+                        )}
+                      </td>
+
                     </tr>
                   )
                 )}
+
               </tbody>
+
             </table>
+
           </div>
+
         </section>
       )}
 
-      {thresholds && (
+      {/* ================================================= */}
+      {/* THRESHOLDS */}
+      {/* ================================================= */}
+
+      {editingThresholds && (
         <section className="evaluation-section">
+
           <div className="section-title">
             <div>
-              <h2>Detection Thresholds</h2>
+              <h2>
+                Detection Thresholds
+              </h2>
+
               <p>
-                Loaded from config/thresholds.yaml. Update via PUT
-                /api/config/thresholds without changing detection code.
+                Configure anomaly detection
+                thresholds.
               </p>
             </div>
           </div>
-          <div className="table-container">
-            <pre className="threshold-json">
-              {JSON.stringify(thresholds, null, 2)}
-            </pre>
+
+          <div className="threshold-editor">
+
+            {/* ================= GPS ================= */}
+
+            <div className="threshold-group">
+
+              <h3>
+                GPS Thresholds
+              </h3>
+
+              <div className="threshold-grid">
+
+                <label>
+                  <span>
+                    High Speed (km/h)
+                  </span>
+
+                  <input
+                    type="number"
+                    value={
+                      editingThresholds.gps
+                        ?.high_speed_kmh ?? ""
+                    }
+                    onChange={(e) =>
+                      updateGpsThreshold(
+                        "high_speed_kmh",
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    Very High Speed (km/h)
+                  </span>
+
+                  <input
+                    type="number"
+                    value={
+                      editingThresholds.gps
+                        ?.very_high_speed_kmh ?? ""
+                    }
+                    onChange={(e) =>
+                      updateGpsThreshold(
+                        "very_high_speed_kmh",
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    Extreme Speed (km/h)
+                  </span>
+
+                  <input
+                    type="number"
+                    value={
+                      editingThresholds.gps
+                        ?.extreme_speed_kmh ?? ""
+                    }
+                    onChange={(e) =>
+                      updateGpsThreshold(
+                        "extreme_speed_kmh",
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    GPS Jump (m)
+                  </span>
+
+                  <input
+                    type="number"
+                    value={
+                      editingThresholds.gps
+                        ?.gps_jump_m ?? ""
+                    }
+                    onChange={(e) =>
+                      updateGpsThreshold(
+                        "gps_jump_m",
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    Long Time Gap (sec)
+                  </span>
+
+                  <input
+                    type="number"
+                    value={
+                      editingThresholds.gps
+                        ?.long_time_gap_seconds ??
+                      ""
+                    }
+                    onChange={(e) =>
+                      updateGpsThreshold(
+                        "long_time_gap_seconds",
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    High Time Gap (sec)
+                  </span>
+
+                  <input
+                    type="number"
+                    value={
+                      editingThresholds.gps
+                        ?.high_time_gap_seconds ??
+                      ""
+                    }
+                    onChange={(e) =>
+                      updateGpsThreshold(
+                        "high_time_gap_seconds",
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    Critical Time Gap (sec)
+                  </span>
+
+                  <input
+                    type="number"
+                    value={
+                      editingThresholds.gps
+                        ?.critical_time_gap_seconds ??
+                      ""
+                    }
+                    onChange={(e) =>
+                      updateGpsThreshold(
+                        "critical_time_gap_seconds",
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    Route Deviation (m)
+                  </span>
+
+                  <input
+                    type="number"
+                    value={
+                      editingThresholds.gps
+                        ?.route_deviation_m ?? ""
+                    }
+                    onChange={(e) =>
+                      updateGpsThreshold(
+                        "route_deviation_m",
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+
+              </div>
+
+            </div>
+
+            {/* ================= HYBRID ================= */}
+
+            <div className="threshold-group">
+
+              <h3>
+                Hybrid Detection
+              </h3>
+
+              <div className="threshold-grid">
+
+                <label>
+                  <span>
+                    Rule Weight
+                  </span>
+
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="1"
+                    value={
+                      editingThresholds.hybrid
+                        ?.rule_weight ?? ""
+                    }
+                    onChange={(e) =>
+                      updateHybridThreshold(
+                        "rule_weight",
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    ML Weight
+                  </span>
+
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="1"
+                    value={
+                      editingThresholds.hybrid
+                        ?.ml_weight ?? ""
+                    }
+                    onChange={(e) =>
+                      updateHybridThreshold(
+                        "ml_weight",
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+
+                <label>
+                  <span>
+                    Anomaly Score Threshold
+                  </span>
+
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="1"
+                    value={
+                      editingThresholds.hybrid
+                        ?.anomaly_score_threshold ??
+                      ""
+                    }
+                    onChange={(e) =>
+                      updateHybridThreshold(
+                        "anomaly_score_threshold",
+                        Number(
+                          e.target.value
+                        )
+                      )
+                    }
+                  />
+                </label>
+
+              </div>
+
+            </div>
+
+            {/* ================= BUTTONS ================= */}
+
+            <div className="threshold-actions">
+
+              <button
+                className="page-button"
+                onClick={
+                  handleResetThresholds
+                }
+                disabled={savingThresholds}
+              >
+                Reset
+              </button>
+
+              <button
+                className="filter-button active"
+                onClick={
+                  handleSaveThresholds
+                }
+                disabled={savingThresholds}
+              >
+                {savingThresholds
+                  ? "Saving..."
+                  : "Save Thresholds"}
+              </button>
+
+            </div>
+
+            {thresholdMessage && (
+              <p className="threshold-message">
+                {thresholdMessage}
+              </p>
+            )}
+
           </div>
+
         </section>
       )}
 
@@ -418,7 +895,6 @@ export default function App() {
         <div className="section-title">
 
           <div>
-
             <h2>
               Anomaly Map
             </h2>
@@ -427,14 +903,15 @@ export default function App() {
               Geographic distribution of
               detected anomalies
             </p>
-
           </div>
 
         </div>
 
         <AnomalyMap
           anomalies={mapAnomalies}
-          onSelectAnomaly={setSelectedAnomaly}
+          onSelectAnomaly={
+            setSelectedAnomaly
+          }
         />
 
       </section>
@@ -448,7 +925,6 @@ export default function App() {
         <div className="records-header">
 
           <div>
-
             <h2>
               Anomaly Records
             </h2>
@@ -456,13 +932,12 @@ export default function App() {
             <p>
               Showing{" "}
               {startRecord}
-              -
+              {" - "}
               {endRecord}
               {" "}of{" "}
               {totalRecords}
               {" "}records
             </p>
-
           </div>
 
           <div className="filters">
@@ -484,7 +959,9 @@ export default function App() {
                     : ""
                 }`}
                 onClick={() =>
-                  handleFilterChange(filter)
+                  handleFilterChange(
+                    filter
+                  )
                 }
               >
                 {filter}
@@ -505,94 +982,91 @@ export default function App() {
           <table>
 
             <thead>
-
               <tr>
-
                 <th>ID</th>
-
                 <th>Guard ID</th>
-
                 <th>Risk Level</th>
-
                 <th>Score</th>
-
                 <th>Reason</th>
-
                 <th>Latitude</th>
-
                 <th>Longitude</th>
-
               </tr>
-
             </thead>
 
             <tbody>
 
-              {anomalies.map((anomaly) => (
+              {anomalies.map(
+                (anomaly) => (
 
-                <tr
-                  key={anomaly.id}
-                  onClick={() =>
-                    setSelectedAnomaly(anomaly)
-                  }
-                  className="table-row"
-                >
+                  <tr
+                    key={anomaly.id}
+                    onClick={() =>
+                      setSelectedAnomaly(
+                        anomaly
+                      )
+                    }
+                    className="table-row"
+                  >
 
-                  <td>
-                    #{anomaly.id}
-                  </td>
+                    <td>
+                      #{anomaly.id}
+                    </td>
 
-                  <td>
-                    <strong>
-                      {anomaly.guard_id}
-                    </strong>
-                  </td>
+                    <td>
+                      <strong>
+                        {anomaly.guard_id}
+                      </strong>
+                    </td>
 
-                  <td>
+                    <td>
+                      <span
+                        className={`risk-badge ${
+                          anomaly.final_risk_level.toLowerCase()
+                        }`}
+                      >
+                        {
+                          anomaly.final_risk_level
+                        }
+                      </span>
+                    </td>
 
-                    <span
-                      className={`risk-badge ${
-                        anomaly.final_risk_level.toLowerCase()
-                      }`}
-                    >
-                      {anomaly.final_risk_level}
-                    </span>
+                    <td>
+                      <span className="score">
+                        {anomaly.final_hybrid_score.toFixed(
+                          2
+                        )}
+                      </span>
+                    </td>
 
-                  </td>
+                    <td className="reason-cell">
+                      {
+                        anomaly.anomaly_reason ||
+                        "Unknown"
+                      }
+                    </td>
 
-                  <td>
-
-                    <span className="score">
-                      {anomaly.final_hybrid_score.toFixed(
-                        2
+                    <td>
+                      {anomaly.latitude.toFixed(
+                        6
                       )}
-                    </span>
+                    </td>
 
-                  </td>
+                    <td>
+                      {anomaly.longitude.toFixed(
+                        6
+                      )}
+                    </td>
 
-                  <td className="reason-cell">
-                    {anomaly.anomaly_reason ||
-                      "Unknown"}
-                  </td>
+                  </tr>
 
-                  <td>
-                    {anomaly.latitude.toFixed(6)}
-                  </td>
-
-                  <td>
-                    {anomaly.longitude.toFixed(6)}
-                  </td>
-
-                </tr>
-
-              ))}
+                )
+              )}
 
             </tbody>
 
           </table>
 
           {anomalies.length === 0 && (
-
             <div className="empty-state">
 
               <h3>
@@ -605,7 +1079,6 @@ export default function App() {
               </p>
 
             </div>
-
           )}
 
         </div>
@@ -620,9 +1093,13 @@ export default function App() {
 
             <button
               className="page-button"
-              disabled={currentPage === 1}
+              disabled={
+                currentPage === 1
+              }
               onClick={() =>
-                goToPage(currentPage - 1)
+                goToPage(
+                  currentPage - 1
+                )
               }
             >
               ← Previous
@@ -634,7 +1111,8 @@ export default function App() {
                 {
                   length: totalPages,
                 },
-                (_, index) => index + 1
+                (_, index) =>
+                  index + 1
               ).map((page) => (
 
                 <button
@@ -658,10 +1136,13 @@ export default function App() {
             <button
               className="page-button"
               disabled={
-                currentPage === totalPages
+                currentPage ===
+                totalPages
               }
               onClick={() =>
-                goToPage(currentPage + 1)
+                goToPage(
+                  currentPage + 1
+                )
               }
             >
               Next →
@@ -702,7 +1183,8 @@ export default function App() {
                 </p>
 
                 <h2>
-                  Record #{selectedAnomaly.id}
+                  Record #
+                  {selectedAnomaly.id}
                 </h2>
 
               </div>
@@ -710,7 +1192,9 @@ export default function App() {
               <button
                 className="close-button"
                 onClick={() =>
-                  setSelectedAnomaly(null)
+                  setSelectedAnomaly(
+                    null
+                  )
                 }
               >
                 ×
@@ -725,7 +1209,9 @@ export default function App() {
                   selectedAnomaly.final_risk_level.toLowerCase()
                 }`}
               >
-                {selectedAnomaly.final_risk_level}
+                {
+                  selectedAnomaly.final_risk_level
+                }
               </span>
 
               <span className="modal-score">
@@ -740,19 +1226,18 @@ export default function App() {
             <div className="details-grid">
 
               <div className="detail-item">
-
                 <span>
                   Guard ID
                 </span>
 
                 <strong>
-                  {selectedAnomaly.guard_id}
+                  {
+                    selectedAnomaly.guard_id
+                  }
                 </strong>
-
               </div>
 
               <div className="detail-item">
-
                 <span>
                   Timestamp
                 </span>
@@ -762,11 +1247,9 @@ export default function App() {
                     selectedAnomaly.timestamp
                   ).toLocaleString()}
                 </strong>
-
               </div>
 
               <div className="detail-item">
-
                 <span>
                   Speed
                 </span>
@@ -777,11 +1260,9 @@ export default function App() {
                   )}{" "}
                   km/h
                 </strong>
-
               </div>
 
               <div className="detail-item">
-
                 <span>
                   Time Gap
                 </span>
@@ -792,11 +1273,9 @@ export default function App() {
                   )}{" "}
                   sec
                 </strong>
-
               </div>
 
               <div className="detail-item">
-
                 <span>
                   Distance Jump
                 </span>
@@ -807,11 +1286,9 @@ export default function App() {
                   )}{" "}
                   m
                 </strong>
-
               </div>
 
               <div className="detail-item">
-
                 <span>
                   Distance From Road
                 </span>
@@ -822,11 +1299,9 @@ export default function App() {
                   )}{" "}
                   m
                 </strong>
-
               </div>
 
               <div className="detail-item">
-
                 <span>
                   Latitude
                 </span>
@@ -836,11 +1311,9 @@ export default function App() {
                     6
                   )}
                 </strong>
-
               </div>
 
               <div className="detail-item">
-
                 <span>
                   Longitude
                 </span>
@@ -850,7 +1323,6 @@ export default function App() {
                     6
                   )}
                 </strong>
-
               </div>
 
             </div>
@@ -862,8 +1334,10 @@ export default function App() {
               </span>
 
               <p>
-                {selectedAnomaly.anomaly_reason ||
-                  "No reason provided"}
+                {
+                  selectedAnomaly.anomaly_reason ||
+                  "No reason provided"
+                }
               </p>
 
             </div>

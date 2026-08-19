@@ -28,7 +28,7 @@ def _assign_rule_score(point: GpsFeature, gps_cfg: dict[str, Any]) -> tuple[floa
     elif point.high_speed:
         reasons.append("High speed")
         anomaly_type = anomaly_type or "ABNORMAL_SPEED"
-        score = max(score, 0.25)
+        score = max(score, 0.35)
 
     if point.distance_to_road_m > float(gps_cfg["extreme_road_deviation_m"]):
         reasons.append("Extreme route deviation")
