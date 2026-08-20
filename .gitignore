@@ -46,3 +46,4 @@ data/interim/*.parquet
 
 .coverage
 htmlcov/
+.vercel
