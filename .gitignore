@@ -42,3 +42,4 @@ frontend/dist/
 data/interim/osm/*.gpkg
 
 data/interim/geolife/*.parquet
+data/interim/*.parquet
