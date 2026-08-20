@@ -39,3 +39,4 @@ frontend/dist/
 # IDE
 .vscode/
 .idea/
+data/interim/osm/*.gpkg
