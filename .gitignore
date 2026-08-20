@@ -43,3 +43,6 @@ data/interim/osm/*.gpkg
 
 data/interim/geolife/*.parquet
 data/interim/*.parquet
+
+.coverage
+htmlcov/
