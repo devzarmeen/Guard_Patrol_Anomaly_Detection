@@ -40,3 +40,5 @@ frontend/dist/
 .vscode/
 .idea/
 data/interim/osm/*.gpkg
+
+data/interim/geolife/*.parquet
