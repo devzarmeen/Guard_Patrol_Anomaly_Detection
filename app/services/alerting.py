@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import smtplib
 from datetime import datetime
 from email.message import EmailMessage
@@ -12,6 +13,14 @@ from sqlmodel import Session, select
 from app.config import app_settings, load_thresholds
 from app.models import AlertLog
 
+logger = logging.getLogger(__name__)
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
 
 def _should_alert(event: dict[str, Any], thresholds: dict[str, Any]) -> bool:
     alert_cfg = thresholds["alerting"]
@@ -20,6 +29,18 @@ def _should_alert(event: dict[str, Any], thresholds: dict[str, Any]) -> bool:
     risk = str(event.get("event_risk_level", "")).lower()
     score = float(event.get("max_hybrid_score") or 0.0)
     return risk in min_levels or score >= min_score
+
+
+def _latest_log(
+    session: Session,
+    event_key: str,
+    channel: str,
+) -> AlertLog | None:
+    return session.exec(
+        select(AlertLog)
+        .where(AlertLog.event_key == event_key, AlertLog.channel == channel)
+        .order_by(AlertLog.id.desc())
+    ).first()
 
 
 def _send_email(subject: str, body: str, settings: dict[str, Any]) -> tuple[str, str | None]:
@@ -32,32 +53,77 @@ def _send_email(subject: str, body: str, settings: dict[str, Any]) -> tuple[str,
     message["To"] = settings["alert_email_to"]
     message.set_content(body)
 
-    with smtplib.SMTP(settings["smtp_host"], settings["smtp_port"], timeout=15) as smtp:
-        smtp.starttls()
-        if settings["smtp_username"]:
-            smtp.login(settings["smtp_username"], settings["smtp_password"])
-        smtp.send_message(message)
-    return "sent", None
+    try:
+        if settings.get("smtp_use_ssl"):
+            client: smtplib.SMTP = smtplib.SMTP_SSL(
+                settings["smtp_host"],
+                settings["smtp_port"],
+                timeout=15,
+            )
+        else:
+            client = smtplib.SMTP(
+                settings["smtp_host"],
+                settings["smtp_port"],
+                timeout=15,
+            )
+        with client as smtp:
+            if settings.get("smtp_use_tls") and not settings.get("smtp_use_ssl"):
+                smtp.starttls()
+            if settings["smtp_username"]:
+                smtp.login(settings["smtp_username"], settings["smtp_password"])
+            smtp.send_message(message)
+        return "sent", None
+    except (smtplib.SMTPException, OSError, TimeoutError, ValueError) as exc:
+        logger.warning("Alert email failed: %s", exc)
+        return "failed", str(exc)
 
 
 def _send_webhook(payload: dict[str, Any], settings: dict[str, Any]) -> tuple[str, str | None]:
     if not settings["webhook_url"]:
         return "skipped", "WEBHOOK_URL is not configured"
 
-    data = json.dumps(payload).encode("utf-8")
-    req = request.Request(
-        settings["webhook_url"],
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     try:
-        with request.urlopen(req, timeout=15) as response:
+        data = json.dumps(payload, default=_json_default).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if settings.get("webhook_token"):
+            headers["Authorization"] = f"Bearer {settings['webhook_token']}"
+        req = request.Request(
+            settings["webhook_url"],
+            data=data,
+            headers=headers,
+            method="POST",
+        )
+        timeout = int(settings.get("webhook_timeout_seconds") or 15)
+        with request.urlopen(req, timeout=timeout) as response:
             if 200 <= response.status < 300:
                 return "sent", None
             return "failed", f"Webhook status {response.status}"
-    except error.URLError as exc:
+    except error.HTTPError as exc:
+        logger.warning("Alert webhook HTTP error: %s", exc)
+        return "failed", f"Webhook status {exc.code}"
+    except (error.URLError, TimeoutError, OSError, TypeError, ValueError) as exc:
+        logger.warning("Alert webhook failed: %s", exc)
         return "failed", str(exc)
+
+
+def _record_alert(
+    session: Session,
+    event_key: str,
+    channel: str,
+    status: str,
+    message: str,
+    error: str | None,
+) -> dict[str, Any]:
+    session.add(
+        AlertLog(
+            event_key=event_key,
+            channel=channel,
+            status=status,
+            message=message,
+            error=error,
+        )
+    )
+    return {"channel": channel, "status": status, "error": error}
 
 
 def send_alerts_for_events(
@@ -77,12 +143,6 @@ def send_alerts_for_events(
             f"{event.get('guard_id')}:{event.get('event_id')}:"
             f"{event.get('start_time')}"
         )
-        existing = session.exec(
-            select(AlertLog).where(AlertLog.event_key == event_key)
-        ).first()
-        if existing and existing.status == "sent":
-            continue
-
         subject = (
             f"[VigiloX] {event.get('event_risk_level')} patrol anomaly "
             f"for guard {event.get('guard_id')}"
@@ -103,30 +163,37 @@ def send_alerts_for_events(
         }
 
         if cfg["alerting"].get("email_enabled", True):
-            status, err = _send_email(subject, body, settings)
-            session.add(
-                AlertLog(
-                    event_key=event_key,
-                    channel="email",
-                    status=status,
-                    message=subject,
-                    error=err,
+            existing = _latest_log(session, event_key, "email")
+            email_unconfigured = not settings["smtp_host"] or not settings["alert_email_to"]
+            if existing and existing.status == "sent":
+                pass
+            elif existing and existing.status == "skipped" and email_unconfigured:
+                pass
+            else:
+                status, err = _send_email(subject, body, settings)
+                results.append(
+                    _record_alert(session, event_key, "email", status, subject, err)
                 )
-            )
-            results.append({"channel": "email", "status": status, "error": err})
 
         if cfg["alerting"].get("webhook_enabled", True):
-            status, err = _send_webhook(payload, settings)
-            session.add(
-                AlertLog(
-                    event_key=event_key,
-                    channel="webhook",
-                    status=status,
-                    message="webhook",
-                    error=err,
+            existing = _latest_log(session, event_key, "webhook")
+            webhook_unconfigured = not settings["webhook_url"]
+            if existing and existing.status == "sent":
+                pass
+            elif existing and existing.status == "skipped" and webhook_unconfigured:
+                pass
+            else:
+                status, err = _send_webhook(payload, settings)
+                results.append(
+                    _record_alert(
+                        session,
+                        event_key,
+                        "webhook",
+                        status,
+                        "webhook",
+                        err,
+                    )
                 )
-            )
-            results.append({"channel": "webhook", "status": status, "error": err})
 
     session.commit()
     return results

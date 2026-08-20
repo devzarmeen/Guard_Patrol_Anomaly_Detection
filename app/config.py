@@ -85,24 +85,44 @@ def load_checkpoints(force: bool = False) -> dict[str, Any]:
     return data.get("checkpoints", data) if isinstance(data, dict) else {}
 
 
+def _env_bool(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).lower() in {"1", "true", "yes", "on"}
+
+
 def app_settings() -> dict[str, Any]:
     database_url = os.getenv("DATABASE_URL") or "sqlite:///./data/app.db"
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    cors_origins = [
+        origin.strip()
+        for origin in os.getenv("CORS_ORIGINS", "*").split(",")
+        if origin.strip()
+    ]
     return {
         "app_name": os.getenv(
             "APP_NAME",
             "VigiloX Guard Patrol Anomaly Detection",
         ),
         "app_env": os.getenv("APP_ENV", "development"),
-        "debug": os.getenv("DEBUG", "false").lower() == "true",
-        "testing": os.getenv("TESTING", "false").lower() == "true",
+        "debug": _env_bool("DEBUG", "false"),
+        "testing": _env_bool("TESTING", "false"),
         "database_url": database_url,
+        "cors_origins": cors_origins or ["*"],
         "webhook_url": os.getenv("WEBHOOK_URL", ""),
+        "webhook_token": os.getenv("WEBHOOK_TOKEN", ""),
+        "webhook_timeout_seconds": int(os.getenv("WEBHOOK_TIMEOUT_SECONDS", "15")),
         "smtp_host": os.getenv("SMTP_HOST", ""),
-        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
+        "smtp_port": smtp_port,
         "smtp_username": os.getenv("SMTP_USERNAME", ""),
         "smtp_password": os.getenv("SMTP_PASSWORD", ""),
         "smtp_from": os.getenv("SMTP_FROM", os.getenv("SMTP_USERNAME", "")),
+        "smtp_use_ssl": _env_bool(
+            "SMTP_USE_SSL",
+            "true" if smtp_port == 465 else "false",
+        ),
+        "smtp_use_tls": _env_bool(
+            "SMTP_USE_TLS",
+            "false" if smtp_port == 465 else "true",
+        ),
         "alert_email_to": os.getenv("ALERT_EMAIL_TO", ""),
-        "scheduler_enabled": os.getenv("SCHEDULER_ENABLED", "true").lower()
-        == "true",
+        "scheduler_enabled": _env_bool("SCHEDULER_ENABLED", "true"),
     }

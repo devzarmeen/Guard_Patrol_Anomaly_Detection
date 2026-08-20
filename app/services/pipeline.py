@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,6 @@ from app.detection.hybrid import detect_hybrid
 from app.detection.isolation_forest import detect_isolation_forest
 from app.detection.patrols import detect_patrols
 from app.detection.rules import detect_rule_based
-from app.detection.evaluation import compare_methods
 from app.evaluation.metrics import compare_methods
 from app.models import (
     ActionableEvent,
@@ -27,6 +27,8 @@ from app.models import (
     ProcessingCursor,
 )
 from app.services.alerting import send_alerts_for_events
+
+logger = logging.getLogger(__name__)
 
 
 def _row_from_model(model: Any) -> dict[str, Any]:
@@ -225,21 +227,57 @@ def ingest_sample_files(session: Session) -> dict[str, int]:
     return counts
 
 
+def _gps_context_rows(
+    session: Session,
+    new_rows: list[GpsEvent],
+) -> list[dict[str, Any]]:
+    guard_ids = {row.guard_id for row in new_rows}
+    if not guard_ids:
+        return []
+
+    processed = session.exec(
+        select(GpsEvent).where(
+            GpsEvent.processed == True,  # noqa: E712
+            GpsEvent.guard_id.in_(guard_ids),
+        )
+    ).all()
+
+    latest: dict[str, GpsEvent] = {}
+    for row in processed:
+        current = latest.get(row.guard_id)
+        if current is None or row.timestamp > current.timestamp:
+            latest[row.guard_id] = row
+    return [_row_from_model(row) for row in latest.values()]
+
+
 def _gps_rows(
     session: Session,
     incremental: bool,
-) -> list[dict[str, Any]]:
-
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     statement = select(GpsEvent)
-
     if incremental:
         statement = statement.where(
             GpsEvent.processed == False
         )  # noqa: E712
 
     rows = session.exec(statement).all()
+    context = _gps_context_rows(session, rows) if incremental else []
+    return [_row_from_model(row) for row in rows], context
 
-    return [_row_from_model(row) for row in rows]
+
+def _checkin_rows(session: Session, incremental: bool) -> list[CheckinEvent]:
+    rows = session.exec(select(CheckinEvent)).all()
+    if not incremental:
+        return list(rows)
+    return [row for row in rows if not row.processed]
+
+
+def _patrol_rows(session: Session, incremental: bool) -> list[PatrolStop]:
+    rows = session.exec(select(PatrolStop)).all()
+    if not incremental:
+        return list(rows)
+    dirty_ids = {row.patrol_id for row in rows if not row.processed}
+    return [row for row in rows if row.patrol_id in dirty_ids]
 
 
 def persist_detection(
@@ -317,55 +355,77 @@ def persist_detection(
     session.commit()
 
 
+def _upsert_cursor(session: Session, stream_name: str, last_id: int | None) -> None:
+    processing_state = session.get(ProcessingCursor, stream_name)
+    if processing_state is None:
+        processing_state = ProcessingCursor(
+            stream_name=stream_name,
+            updated_at=datetime.utcnow(),
+        )
+    processing_state.last_timestamp = datetime.utcnow()
+    processing_state.last_id = last_id
+    processing_state.updated_at = datetime.utcnow()
+    session.add(processing_state)
+
+
 def _mark_processed(
     session: Session,
     incremental: bool,
+    checkin_findings: list[dict[str, Any]],
+    patrol_findings: list[dict[str, Any]],
+    gps_rows: list[dict[str, Any]],
+    checkin_models: list[CheckinEvent],
+    patrol_models: list[PatrolStop],
 ) -> None:
-
     if not incremental:
         return
 
-    # =========================================================
-    # MARK SOURCE DATA AS PROCESSED
-    # =========================================================
+    gps_keys = {
+        (str(row["guard_id"]), row["timestamp"])
+        for row in gps_rows
+    }
+    if gps_keys:
+        gps_events = session.exec(
+            select(GpsEvent).where(GpsEvent.processed == False)  # noqa: E712
+        ).all()
+        for row in gps_events:
+            if (row.guard_id, row.timestamp) in gps_keys:
+                row.processed = True
+                session.add(row)
 
-    for model in (
-        GpsEvent,
-        CheckinEvent,
-        PatrolStop,
-    ):
-
-        rows = session.exec(
-            select(model).where(
-                model.processed == False
-            )
-        ).all()  # noqa: E712
-
-        for row in rows:
+    missed_checkins = {
+        str(item.get("checkin_id"))
+        for item in checkin_findings
+        if item.get("status") == "MISSED"
+    }
+    for row in checkin_models:
+        if row.actual_time is not None or row.checkin_id in missed_checkins:
             row.processed = True
             session.add(row)
 
-    # =========================================================
-    # PROCESSING STATE / CHECKPOINT
-    # =========================================================
+    missed_stops = {
+        (str(item.get("patrol_id")), str(item.get("checkpoint_id")))
+        for item in patrol_findings
+        if item.get("anomaly_type") == "CHECKPOINT_MISSED"
+    }
+    for row in patrol_models:
+        if row.actual_time is not None or (
+            str(row.patrol_id),
+            str(row.checkpoint_id),
+        ) in missed_stops:
+            row.processed = True
+            session.add(row)
 
-    processing_state = session.get(
-        ProcessingCursor,
-        "gps",
+    last_gps_id = max((row.get("id") or 0) for row in gps_rows) if gps_rows else None
+    last_checkin_id = (
+        max((row.id or 0) for row in checkin_models) if checkin_models else None
     )
-
-    if processing_state is None:
-
-        processing_state = ProcessingCursor(
-            stream_name="gps",
-            updated_at=datetime.utcnow(),
-        )
-
-    processing_state.last_timestamp = datetime.utcnow()
-    processing_state.updated_at = datetime.utcnow()
-
-    session.add(processing_state)
-
+    last_patrol_id = (
+        max((row.id or 0) for row in patrol_models) if patrol_models else None
+    )
+    _upsert_cursor(session, "gps", last_gps_id)
+    _upsert_cursor(session, "checkins", last_checkin_id)
+    _upsert_cursor(session, "patrols", last_patrol_id)
     session.commit()
 
 
@@ -378,6 +438,12 @@ def _finding_events(
     by_id = {
         str(row.get("checkin_id") or ""): row
         for row in source_rows
+        if row.get("checkin_id")
+    }
+    by_stop = {
+        f"{row.get('patrol_id')}:{row.get('checkpoint_id')}": row
+        for row in source_rows
+        if row.get("patrol_id") and row.get("checkpoint_id")
     }
 
     events: list[dict[str, Any]] = []
@@ -404,10 +470,12 @@ def _finding_events(
             else "Medium"
         )
 
-        source = by_id.get(
-            str(finding.get("checkin_id") or ""),
-            {},
-        )
+        source = by_id.get(str(finding.get("checkin_id") or ""), {})
+        if not source:
+            source = by_stop.get(
+                f"{finding.get('patrol_id')}:{finding.get('checkpoint_id')}",
+                {},
+            )
 
         lat = (
             source.get("latitude")
@@ -489,24 +557,11 @@ def run_detection_pipeline(
     thresholds = load_thresholds()
     checkpoints = load_checkpoints()
 
-    gps_rows = _gps_rows(
-        session,
-        incremental,
-    )
-
-    checkin_rows = [
-        _row_from_model(row)
-        for row in session.exec(
-            select(CheckinEvent)
-        ).all()
-    ]
-
-    patrol_rows = [
-        _row_from_model(row)
-        for row in session.exec(
-            select(PatrolStop)
-        ).all()
-    ]
+    gps_rows, gps_context = _gps_rows(session, incremental)
+    checkin_models = _checkin_rows(session, incremental)
+    patrol_models = _patrol_rows(session, incremental)
+    checkin_rows = [_row_from_model(row) for row in checkin_models]
+    patrol_rows = [_row_from_model(row) for row in patrol_models]
 
     # =========================================================
     # GPS FEATURES
@@ -515,6 +570,7 @@ def run_detection_pipeline(
     features = build_gps_features(
         gps_rows,
         thresholds,
+        context_rows=gps_context,
     )
 
     # =========================================================
@@ -602,6 +658,11 @@ def run_detection_pipeline(
         _mark_processed(
             session,
             incremental,
+            checkin_findings,
+            patrol_findings,
+            gps_rows,
+            checkin_models,
+            patrol_models,
         )
 
     # =========================================================
@@ -611,17 +672,28 @@ def run_detection_pipeline(
     alert_results: list[dict[str, Any]] = []
 
     if send_alerts:
-
-        alert_results = send_alerts_for_events(
-            session,
-            all_events,
-            thresholds,
-        )
+        try:
+            alert_results = send_alerts_for_events(
+                session,
+                all_events,
+                thresholds,
+            )
+        except Exception as exc:
+            logger.exception("Alert dispatch failed")
+            alert_results = [
+                {
+                    "channel": "pipeline",
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            ]
 
     return {
         "method": method,
         "incremental": incremental,
         "gps_points": len(features),
+        "checkin_records": len(checkin_rows),
+        "patrol_records": len(patrol_rows),
         "anomalies": sum(
             1
             for point in points

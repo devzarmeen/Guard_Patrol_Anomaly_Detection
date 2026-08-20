@@ -28,7 +28,7 @@ def ingest_gps(payload: list[GpsIngest]):
             if exists:
                 skipped += 1
                 continue
-            session.add(GpsEvent(**item.model_dump()))
+            session.add(GpsEvent(**item.model_dump(), processed=False))
             ingested += 1
         session.commit()
     return {"ingested": ingested, "skipped": skipped}
@@ -37,24 +37,55 @@ def ingest_gps(payload: list[GpsIngest]):
 @router.post("/ingest/checkins")
 def ingest_checkins(payload: list[CheckinIngest]):
     ingested = 0
+    updated = 0
     with session_scope() as session:
         for item in payload:
-            errors = validate_checkin_row(item.model_dump())
+            data = item.model_dump()
+            errors = validate_checkin_row(data)
             if errors:
                 raise HTTPException(status_code=422, detail=errors)
-            session.add(CheckinEvent(**item.model_dump(), processed=False))
+            exists = session.exec(
+                select(CheckinEvent).where(
+                    CheckinEvent.checkin_id == item.checkin_id
+                )
+            ).first()
+            if exists:
+                for key, value in data.items():
+                    setattr(exists, key, value)
+                exists.processed = False
+                session.add(exists)
+                updated += 1
+                continue
+            session.add(CheckinEvent(**data, processed=False))
             ingested += 1
         session.commit()
-    return {"ingested": ingested}
+    return {"ingested": ingested, "updated": updated}
 
 
 @router.post("/ingest/patrols")
 def ingest_patrols(payload: list[PatrolIngest]):
+    ingested = 0
+    updated = 0
     with session_scope() as session:
         for item in payload:
-            session.add(PatrolStop(**item.model_dump()))
+            data = item.model_dump()
+            exists = session.exec(
+                select(PatrolStop).where(
+                    PatrolStop.patrol_id == item.patrol_id,
+                    PatrolStop.checkpoint_id == item.checkpoint_id,
+                )
+            ).first()
+            if exists:
+                for key, value in data.items():
+                    setattr(exists, key, value)
+                exists.processed = False
+                session.add(exists)
+                updated += 1
+                continue
+            session.add(PatrolStop(**data, processed=False))
+            ingested += 1
         session.commit()
-    return {"ingested": len(payload)}
+    return {"ingested": ingested, "updated": updated}
 
 
 @router.post("/ingest/incidents")

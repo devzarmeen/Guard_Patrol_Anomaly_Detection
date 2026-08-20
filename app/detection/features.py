@@ -18,6 +18,7 @@ def _as_dt(value: datetime | str) -> datetime:
 def build_gps_features(
     rows: Sequence[dict[str, Any]],
     thresholds: dict[str, Any] | None = None,
+    context_rows: Sequence[dict[str, Any]] | None = None,
 ) -> list[GpsFeature]:
     cfg = thresholds or load_thresholds()
     gps_cfg = cfg["gps"]
@@ -28,6 +29,13 @@ def build_gps_features(
 
     features: list[GpsFeature] = []
     previous: dict[str, dict[str, Any]] = {}
+    for row in context_rows or []:
+        guard_id = str(row["guard_id"])
+        previous[guard_id] = {
+            "timestamp": _as_dt(row["timestamp"]),
+            "lat": float(row["latitude"]),
+            "lon": float(row["longitude"]),
+        }
 
     for row in sorted_rows:
         guard_id = str(row["guard_id"])

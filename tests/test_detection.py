@@ -73,3 +73,28 @@ def test_out_of_order_checkpoint_detection():
     )
     types = {item["anomaly_type"] for item in findings}
     assert "CHECKPOINT_OUT_OF_ORDER" in types
+
+
+def test_gps_features_use_context_rows_for_incremental_gaps():
+    start = datetime(2026, 8, 13, 8, 30)
+    context = [
+        {
+            "guard_id": "G001",
+            "timestamp": start,
+            "latitude": 51.5074,
+            "longitude": -0.1278,
+        }
+    ]
+    rows = [
+        {
+            "guard_id": "G001",
+            "timestamp": start + timedelta(seconds=5),
+            "latitude": 51.52,
+            "longitude": -0.14,
+            "speed": 80.0,
+        }
+    ]
+    without_context = build_gps_features(rows)
+    with_context = build_gps_features(rows, context_rows=context)
+    assert without_context[0].distance_from_previous_m == 0.0
+    assert with_context[0].distance_from_previous_m > 1000

@@ -1,0 +1,75 @@
+
+============================================================
+       GUARD PATROL ANOMALY DETECTION - FINAL REPORT
+============================================================
+
+1. PROJECT OVERVIEW
+-------------------
+The system analyzes GPS guard patrol data and identifies
+unusual movement patterns using a hybrid anomaly detection
+approach combining rule-based detection and machine learning.
+
+2. DATASET SUMMARY
+------------------
+Total GPS points analyzed: 916
+Unique anomaly points: 21
+Anomaly percentage: 2.29%
+
+3. ACTIONABLE EVENTS
+--------------------
+Total actionable events: 6
+Critical events: 2
+High-risk events: 4
+
+4. EVENT CLASSIFICATION
+-----------------------
+Strong anomalies: 5
+Likely anomalies: 1
+
+5. ANOMALY REASONS
+------------------
+- Far From Road: 11 points
+- Large Time Gap, Large Distance Jump: 4 points
+- High Speed, Large Distance Jump: 2 points
+- Large Distance Jump: 2 points
+- Large Time Gap: 2 points
+
+6. PATROL-WISE ANOMALIES
+------------------------
+- 000_PATROL_0003: 17 anomaly points
+- 000_PATROL_0002: 4 anomaly points
+
+7. RISK DISTRIBUTION
+--------------------
+- Medium: 13 anomaly points
+- High: 5 anomaly points
+- Critical: 3 anomaly points
+
+8. MODEL SCORE
+--------------
+Minimum hybrid score: 0.3601
+Maximum hybrid score: 0.7500
+Mean hybrid score: 0.4994
+
+9. FINAL VALIDATION
+-------------------
+Missing values: 0
+Duplicate events: 0
+Invalid geometry: 0
+Empty geometry: 0
+Missing coordinates: 0
+
+10. CONCLUSION
+--------------
+The final hybrid anomaly detection system identified
+21 unique anomaly points from 916
+GPS observations and grouped them into 6
+actionable events.
+
+The final results indicate that the system can identify
+high-risk patrol behavior and prioritize events for
+operational review.
+
+============================================================
+                    END OF REPORT
+============================================================

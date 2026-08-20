@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import app_settings
-from app.database import create_tables
+from app.database import create_tables, test_connection
 from app.routes.anomalies import router as anomalies_router
 from app.routes.config import router as config_router
 from app.routes.evaluation import router as evaluation_router
@@ -30,10 +30,11 @@ def create_app() -> FastAPI:
         version="1.1.0",
         lifespan=lifespan,
     )
+    origins = settings["cors_origins"]
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials=origins != ["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -54,7 +55,15 @@ def create_app() -> FastAPI:
 
     @application.get("/health")
     def health():
-        return {"status": "healthy"}
+        database = "ok"
+        try:
+            test_connection()
+        except Exception:
+            database = "error"
+        return {
+            "status": "healthy" if database == "ok" else "unhealthy",
+            "database": database,
+        }
 
     return application
 
